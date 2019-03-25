@@ -5,14 +5,24 @@
  */
 package com.opengamma.strata.loader.csv;
 
+import static com.opengamma.strata.basics.date.BusinessDayConventions.FOLLOWING;
 import static com.opengamma.strata.collect.Guavate.toImmutableMap;
 
+import java.time.LocalDate;
 import java.time.YearMonth;
 import java.util.Locale;
 import java.util.Optional;
 import java.util.stream.Stream;
 
 import com.google.common.collect.ImmutableMap;
+import com.opengamma.strata.basics.currency.AdjustablePayment;
+import com.opengamma.strata.basics.currency.Currency;
+import com.opengamma.strata.basics.currency.CurrencyAmount;
+import com.opengamma.strata.basics.date.AdjustableDate;
+import com.opengamma.strata.basics.date.BusinessDayAdjustment;
+import com.opengamma.strata.basics.date.BusinessDayConvention;
+import com.opengamma.strata.basics.date.BusinessDayConventions;
+import com.opengamma.strata.basics.date.HolidayCalendarId;
 import com.opengamma.strata.collect.ArgChecker;
 import com.opengamma.strata.collect.Messages;
 import com.opengamma.strata.collect.io.CsvRow;
@@ -237,6 +247,69 @@ public final class CsvLoaderUtils {
     double longQuantity = ArgChecker.notNegative(longQuantityOpt.orElse(0d), LONG_QUANTITY_FIELD);
     double shortQuantity = ArgChecker.notNegative(shortQuantityOpt.orElse(0d), SHORT_QUANTITY_FIELD);
     return DoublesPair.of(longQuantity, shortQuantity);
+  }
+
+  //-------------------------------------------------------------------------
+  /**
+   * Parses an adjustable date.
+   * 
+   * @param row  the CSV row to parse
+   * @param currencyField  the currency field
+   * @param amountField  the amount field
+   * @param dateField  the date field
+   * @param conventionField  the convention field
+   * @param calendarField  the calendar field
+   * @return the quantity, long first, short second
+   * @throws IllegalArgumentException if the row cannot be parsed
+   */
+  static AdjustablePayment parseAdjustablePayment(
+      CsvRow row,
+      String currencyField,
+      String amountField,
+      String dateField,
+      String conventionField,
+      String calendarField) {
+
+    Currency currency = LoaderUtils.parseCurrency(row.getValue(currencyField));
+    double amount = LoaderUtils.parseDouble(row.getValue(amountField));
+    LocalDate date = LoaderUtils.parseDate(row.getValue(dateField));
+    BusinessDayAdjustment adjustment = parseBusinessDayAdjustment(row, conventionField, calendarField, currency);
+    return AdjustablePayment.of(
+        CurrencyAmount.of(currency, amount),
+        AdjustableDate.of(date, adjustment));
+  }
+
+  //-------------------------------------------------------------------------
+  /**
+   * Parses a business day adjustment.
+   * 
+   * @param row  the CSV row to parse
+   * @param conventionField  the convention field
+   * @param calendarField  the calendar field
+   * @param currency  the applicable currency, used for defaulting
+   * @return the quantity, long first, short second
+   * @throws IllegalArgumentException if the row cannot be parsed
+   */
+  static BusinessDayAdjustment parseBusinessDayAdjustment(
+      CsvRow row,
+      String conventionField,
+      String calendarField,
+      Currency currency) {
+
+    Optional<String> convOpt = row.findValue(conventionField);
+    Optional<String> calOpt = row.findValue(calendarField);
+
+    if (convOpt.isPresent()) {
+      BusinessDayConvention cnv = LoaderUtils.parseBusinessDayConvention(convOpt.get());
+      if (cnv.equals(BusinessDayConventions.NO_ADJUST)) {
+        return BusinessDayAdjustment.NONE;
+      }
+      if (calOpt.isPresent()) {
+        HolidayCalendarId cal = HolidayCalendarId.of(calOpt.get());
+        return BusinessDayAdjustment.of(cnv, cal);
+      }
+    }
+    return BusinessDayAdjustment.of(FOLLOWING, HolidayCalendarId.defaultByCurrency(currency));
   }
 
 }
